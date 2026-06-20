@@ -1,0 +1,24 @@
+# Import the necessary packages and modules
+import matplotlib.pyplot as plt
+import numpy as np
+# Note: The original code uses a custom style sheet
+# plt.style.use('../../matplotlib/sci.mplstyle')
+# Open and read the file calc-ecut.dat
+ecut, ener = np.loadtxt('calc-ecut.dat', delimiter=' ', unpack=True)
+# Create figure object
+plt.figure()
+# Plot the data, using scatter plot
+plt.scatter(ecut, ener, s=150)
+# Plot a dashed line at 80 Ry
+# Note: ener[14] assumes the data file has at least 15 rows
+plt.axhline(ener[14], c='gray', ls='--')
+# Add the x and y-axis labels
+plt.xlabel('Cut-off energy (Ry)')
+plt.ylabel('Total energy (Ry)') 
+# Set the axis limits
+plt.xlim(20, 80)
+plt.ylim(-23.94, -23.56)
+# Save the figure
+plt.savefig('plot-ecut.pdf')
+# Show the figure
+plt.show() 
