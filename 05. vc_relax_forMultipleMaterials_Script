@@ -1,0 +1,230 @@
+#!/bin/bash
+
+# ╔══════════════════════════════════════════════════════╗
+#            GLOBAL PARAMETERS (মাস্টার সেটিংস)
+# ╚══════════════════════════════════════════════════════╝
+QE_INPUT_DIR="qe_input"       # যে ফোল্ডারে সব শুরুর ইনপুট ফাইল আছে
+OUT_DIR="relax_scf_results"   # যেখানে সব রেজাল্ট জমা হবে
+PSEUDO_DIR="./pseudos"         # ছদ্মবিভবের ফোল্ডার পাথ
+NPP=$(nproc)                   # আপনার পিসির সর্বোচ্চ কোর সংখ্যা অটোমেটিক নেবে
+
+# কনভারজেন্স টেস্ট থেকে পাওয়া আপনার মাস্টার প্যারামিটারসমূহ
+ECUTWFC=60                     # Converged ecutwfc
+ECUTRHO=480                    # ecutwfc এর ৮ গুণ (PAW বা USPP এর জন্য নিরাপদ)
+KPT_RELAX="6 6 6 0 0 0"        # vc-relax এর জন্য K-point গ্রিড
+KPT_SCF="8 8 8 0 0 0"          # SCF এর জন্য একটু ঘন K-point গ্রিড
+NBND=30                        # মেটালিক বা smearing রানের জন্য পর্যাপ্ত ব্যান্ড সংখ্যা
+DFT="PBE"                      # আপনার ব্যবহৃত functional (যেমন PBE)
+
+# হাই-থ্রুপুট স্ক্রিনিংয়ে অজানা মেটেরিয়ালের সুরক্ষার জন্য Smearing সেটিংস
+OCCUPATIONS="smearing"
+SMEARING="marzari-vanderbilt"
+DEGAUSS="0.02"
+# ╚══════════════════════════════════════════════════════╝
+
+mkdir -p "$OUT_DIR"
+
+# লুপ শুরু হচ্ছে: qe_input ফোল্ডারের প্রতিটা ফাইলের জন্য কাজ করবে
+for input_file in "$QE_INPUT_DIR"/*.in; do
+
+    # কোনো ফাইল না থাকলে স্ক্রিপ্ট বন্ধ হবে
+    if [ ! -f "$input_file" ]; then
+        echo "No .in files found in $QE_INPUT_DIR folder!"
+        exit 1
+    fi
+
+    # মেটেরিয়ালের নাম এক্সট্রাক্ট করা (যেমন K3IO.in থেকে শুধু K3IO নেবে)
+    compound_name=$(basename "$input_file" .in)
+    compound_dir="$OUT_DIR/$compound_name"
+    mkdir -p "$compound_dir"
+
+    vc_relax_out="$compound_dir/${compound_name}_vc-relax.out"
+    scf_out="$compound_dir/${compound_name}_scf.out"
+
+    echo "=========================================================="
+    echo " High-Throughput Processing Starting for: $compound_name"
+    echo "=========================================================="
+
+    # ── ১. ইনপুট ফাইল থেকে ক্রিস্টাল স্ট্রাকচার রিড করা ──
+    cell_parameters=()
+    atomic_species=()
+    atomic_positions=()
+    recording_atomic_species=false
+    recording_atomic_positions=false
+
+    while IFS= read -r line; do
+        if [[ "$line" == *"CELL_PARAMETERS"* ]]; then
+            recording_atomic_species=false
+            recording_atomic_positions=false
+            continue
+        fi
+        if [[ "$line" == *"ATOMIC_SPECIES"* ]]; then
+            recording_atomic_species=true
+            continue
+        fi
+        if [[ "$line" == *"ATOMIC_POSITIONS"* ]]; then
+            recording_atomic_positions=true
+            recording_atomic_species=false
+            continue
+        fi
+        if $recording_atomic_species && [[ -n "$line" && "$line" =~ [^[:space:]] ]]; then
+            atomic_species+=("$line")
+            continue
+        fi
+        if $recording_atomic_positions; then
+            if [[ "$line" == *"K_POINTS"* || -z "$line" ]]; then
+                recording_atomic_positions=false
+            else
+                atomic_positions+=("$line")
+            fi
+            continue
+        fi
+        if [[ ${#cell_parameters[@]} -lt 3 && -n "$line" && "$line" =~ [^[:space:]] && "$line" != *"&"* && "$line" != *"/"* && "$line" != *"="* ]]; then
+            cell_parameters+=("$line")
+        fi
+    done < "$input_file"
+
+    nat=${#atomic_positions[@]}
+    ntyp=${#atomic_species[@]}
+
+    # ── ২. VC-RELAX ইনপুট ফাইল তৈরি ও রান করা ──
+    vc_relax_input_file="$compound_dir/${compound_name}_vc-relax.in"
+
+    cat > "$vc_relax_input_file" << EOF
+&CONTROL
+  calculation = 'vc-relax'
+  outdir = '$compound_dir'
+  prefix = '$compound_name'
+  pseudo_dir = '$PSEUDO_DIR'
+  restart_mode = 'from_scratch'
+  verbosity = 'high'
+  forc_conv_thr = 1.0d-4
+  etot_conv_thr = 5.0d-5
+/
+&SYSTEM
+  ibrav = 0
+  nat = $nat
+  ntyp = $ntyp
+  ecutwfc = $ECUTWFC
+  ecutrho = $ECUTRHO
+  input_dft = '$DFT'
+  occupations = '$OCCUPATIONS'
+  smearing = '$SMEARING'
+  degauss = $DEGAUSS
+/
+&ELECTRONS
+  conv_thr = 1.0D-8
+  mixing_beta = 0.7
+  electron_maxstep = 200
+/
+&IONS
+  ion_dynamics = 'bfgs'
+/
+&CELL
+  cell_dynamics = 'bfgs'
+  press = 0.0
+  cell_factor = 2.0
+/
+ATOMIC_SPECIES
+$(printf "%s\n" "${atomic_species[@]}")
+
+ATOMIC_POSITIONS (angstrom)
+$(printf "%s\n" "${atomic_positions[@]}")
+
+CELL_PARAMETERS (angstrom)
+$(printf "%s\n" "${cell_parameters[@]}")
+
+K_POINTS automatic
+$KPT_RELAX
+EOF
+
+    echo "-> Running vc-relax for $compound_name on $NPP cores..."
+    mpirun -np $NPP pw.x -in "$vc_relax_input_file" > "$vc_relax_out"
+    
+    # রিল্যাক্সেশন ঠিকঠাক শেষ হয়েছে কিনা চেক করা
+    if ! grep -q "JOB DONE" "$vc_relax_out"; then
+        echo "ERROR: vc-relax failed for $compound_name! Skipping to next material."
+        continue
+    fi
+    echo "-> vc-relax completed successfully!"
+
+    # ── ৩. আউটপুট থেকে রিল্যাক্সড কোঅর্ডিনেট এক্সট্রাক্ট করা ──
+    final_cell_parameters=""
+    final_positions=""
+    in_final_section=false
+
+    while IFS= read -r line; do
+        if [[ "$line" == *"Begin final coordinates"* ]]; then
+            in_final_section=true
+            continue
+        elif [[ "$line" == *"End final coordinates"* ]]; then
+            in_final_section=false
+            continue
+        fi
+
+        if $in_final_section; then
+            if [[ "$line" == *"CELL_PARAMETERS (angstrom)"* ]]; then
+                for i in {1..3}; do
+                    read -r line
+                    final_cell_parameters+="$line\n"
+                done
+            elif [[ "$line" == *"ATOMIC_POSITIONS"* ]]; then
+                for ((i=1; i<=nat; i++)); do
+                    read -r pos_line
+                    final_positions+="$pos_line\n"
+                done
+            fi
+        fi
+    done < "$vc_relax_out"
+
+    # ── ৪. ফাইনাল SCF ইনপুট ফাইল তৈরি ও রান করা ──
+    scf_input_file="$compound_dir/${compound_name}_scf.in"
+
+    cat > "$scf_input_file" << EOF
+&CONTROL
+  calculation = 'scf'
+  outdir = '$compound_dir'
+  prefix = '$compound_name'
+  pseudo_dir = '$PSEUDO_DIR'
+  restart_mode = 'from_scratch'
+  verbosity = 'high'
+/
+&SYSTEM
+  ibrav = 0
+  nat = $nat
+  ntyp = $ntyp
+  ecutwfc = $ECUTWFC
+  ecutrho = $ECUTRHO
+  nbnd = $NBND
+  input_dft = '$DFT'
+  occupations = '$OCCUPATIONS'
+  smearing = '$SMEARING'
+  degauss = $DEGAUSS
+/
+&ELECTRONS
+  conv_thr = 1.0D-8
+  mixing_beta = 0.7
+  electron_maxstep = 200
+/
+ATOMIC_SPECIES
+$(printf "%s\n" "${atomic_species[@]}")
+
+CELL_PARAMETERS (angstrom)
+$(printf "$final_cell_parameters")
+
+ATOMIC_POSITIONS (angstrom)
+$(printf "$final_positions")
+
+K_POINTS automatic
+$KPT_SCF
+EOF
+
+    echo "-> Running Final SCF for $compound_name..."
+    mpirun -np $NPP pw.x -in "$scf_input_file" > "$scf_out"
+    echo "-> SCF completed successfully for $compound_name!"
+
+done
+
+echo "=========================================================="
+echo " High-Throughput Screening completed for all materials!"
+echo "=========================================================="
