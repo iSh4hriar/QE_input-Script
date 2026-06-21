@@ -1,0 +1,64 @@
+#!/bin/bash
+# 3D Anti-perovskite (K3IO) এর জন্য পারফেক্ট K-point কনভারজেন্স স্ক্রিপ্ট
+
+DATA_FILE="calc-kpoint.dat"
+echo "# K-Grid   Total_Energy(Ry)" > $DATA_FILE
+
+# ২ ঘর ব্যবধানে লুপ (সময় বাঁচানোর জন্য বেস্ট)
+for k in 4 6 8 10 12; do 
+
+echo "Running for K-grid: ${k}x${k}x${k}..."
+
+# ইনপুট ফাইল জেনারেট হচ্ছে
+cat > kpoint.$k.in << EOF
+&CONTROL
+  calculation = 'scf'
+  outdir = './out/'
+  prefix = 'K3IO'
+  pseudo_dir = './pseudo/'
+  verbosity = 'high'
+/
+&SYSTEM
+  ibrav = 0
+  nat = 5
+  ntyp = 3
+  ecutwfc = 60.0
+  ecutrho = 480.0
+  occupations = 'smearing'
+  smearing = 'marzari-vanderbilt'
+  degauss = 0.02
+/
+&ELECTRONS
+  conv_thr = 1.0d-06
+  electron_maxstep = 200
+/
+ATOMIC_SPECIES
+I      126.90447 I.pbe-n-kjpaw_psl.0.2.UPF
+K      39.0983   K.pbe-spn-kjpaw_psl.1.0.0.UPF
+O      15.9994   O.pbe-n-kjpaw_psl.0.1.UPF
+
+ATOMIC_POSITIONS crystal
+K            0.0000000000       0.0000000000       0.5000000000
+K            0.5000000000       0.0000000000       0.0000000000
+K            0.0000000000       0.5000000000       0.0000000000
+I            0.5000000000       0.5000000000       0.5000000000
+O            0.0000000000       0.0000000000       0.0000000000
+
+CELL_PARAMETERS angstrom
+      5.2942300000       0.0000000000       0.0000000000
+      0.0000000000       5.2942300000       0.0000000000
+      0.0000000000       0.0000000000       5.2942300000
+
+K_POINTS automatic
+  ${k} ${k} ${k} 0 0 0
+EOF
+
+# আপনার স্ক্রিপ্টের মতো ৪ কোরে স্পিডে রান করার জন্য মপিরান
+mpirun -np 4 pw.x < kpoint.$k.in > kpoint.$k.out
+
+# একদম নিখুঁতভাবে টোটাল এনার্জি ডাটা ফাইলে সেভ করা
+ENERGY=$(grep -e '!    total energy' kpoint.$k.out | awk '{print $4}')
+echo "   ${k}      ${ENERGY}" >> $DATA_FILE
+
+done
+echo "সফলভাবে টেস্ট শেষ হয়েছে! ডাটা পাওয়া যাবে calc-kpoint.dat ফাইলে।"
