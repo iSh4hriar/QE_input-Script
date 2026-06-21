@@ -1,0 +1,33 @@
+import matplotlib.pyplot as plt 
+import numpy as np
+
+# loadtxt এর বদলে genfromtxt ব্যবহার করা নিরাপদ, এটি স্পেসের ঝামেলা নিজে দূর করে
+kp, ener = np.loadtxt('calc-kpoint.dat', unpack=True)
+
+# Create figure object
+plt.figure(figsize=(7, 5))
+
+# Plot the data, using scatter plot (বিন্দুগুলো স্পষ্ট করার জন্য s=100)
+plt.scatter(kp, ener, color='red', s=100, zorder=3)
+plt.plot(kp, ener, color='blue', linestyle='-', alpha=0.5, zorder=2) # বিন্দুগুলো যুক্ত করার রেখা
+
+# এনার্জি যেখানে কনভার্জড হবে (ধরা যাক শেষ পয়েন্ট), সেখানে একটি ড্যাশড লাইন
+plt.axhline(ener[-1], c='gray', ls='--')
+
+# Add the x and y-axis labels
+plt.xlabel(r'K-point Grid Size ($N \times N \times N$)', fontsize=12)
+plt.ylabel('Total energy (Ry)', fontsize=12)
+
+# এক্স-অক্ষের লিমিট আপনার লুপের মান (৪ থেকে ১২) অনুযায়ী অটো বা ম্যানুয়াল সেটআপ
+plt.xlim(min(kp)-1, max(kp)+1)
+
+# ওয়াই-অক্ষের লিমিট ফিক্সড না করে পাইথনের ওপর ছেড়ে দেওয়া (অটো স্কেলিং)
+# এতে গ্রাফ ফাঁকা আসার কোনো সুযোগ থাকবে না
+plt.ylim(min(ener) - 0.005, max(ener) + 0.005)
+
+plt.grid(True, linestyle=':', alpha=0.6)
+plt.xticks(kp) # প্রতিটা পয়েন্ট স্পষ্ট দেখাবে
+
+# Save the figure (PDF এবং PNG দুটোই করতে পারেন)
+plt.savefig('plot-kpoint.png', dpi=300)
+plt.show()
