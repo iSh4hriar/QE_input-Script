@@ -1,0 +1,127 @@
+import os
+import subprocess
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ১. আপনার বেসিক ইনপুট প্যারামিটারসমূহ
+PREFIX = "my_material"
+PSEUDO_DIR = "/path/to/your/pseudos/"  # আপনার সিউডোপোটেনশিয়াল ফোল্ডারের পাথ
+NCPUS = 4                              # আপনি যতগুলো কোরে রান করতে চান
+
+# vc-relax থেকে পাওয়া রিল্যাক্সড ল্যাটিস ম্যাট্রিক্স (Angstrom ইউনিটে)
+CELL_BASE = np.array([
+    [5.4307, 0.0000, 0.0000],
+    [0.0000, 5.4307, 0.0000],
+    [0.0000, 0.0000, 5.4307]
+])
+
+# রিল্যাক্সড অ্যাটমিক পজিশনস (হুবহু কপি করে ট্রিপল কোটের ভেতর বসিয়ে দিন)
+ATOMIC_POSITIONS_STR = """
+Si  0.000000000  0.000000000  0.000000000
+Si  0.250000000  0.250000000  0.250000000
+"""
+
+# ২. স্ট্রেন রেঞ্জ নির্ধারণ (-২% থেকে +২% পর্যন্ত ৫টি পয়েন্ট)
+strains = np.array([-0.02, -0.01, 0.00, 0.01, 0.02])
+energies = []
+
+# রিল্যাক্সড ভলিউম হিসাব (Angstrom^3)
+V0 = np.dot(CELL_BASE[0], np.cross(CELL_BASE[1], CELL_BASE[2]))
+
+print(f"Relaxed Volume (V0): {V0:.4f} Angstrom^3")
+
+# ৩. লুপ চালিয়ে স্ট্রেন অ্যাপ্লাই ও QE রান করা
+for delta in strains:
+    print(f"Running simulation for strain delta = {delta}...")
+    
+    # Uniaxial Strain Tensor অ্যাপ্লাই (x-অক্ষ বরাবর)
+    strain_matrix = np.array([
+        [1.0 + delta, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0]
+    ])
+    # নতুন স্ট্রেনড সেল তৈরি
+    strained_cell = np.dot(CELL_BASE, strain_matrix)
+    
+    # ইনপুট ফাইলের টেক্সট ফরম্যাট তৈরি
+    input_data = f"""&CONTROL
+    calculation = 'scf'
+    prefix = '{PREFIX}'
+    outdir = './tmp/'
+    pseudo_dir = '{PSEUDO_DIR}'
+/
+&SYSTEM
+    ibrav = 0, nat = 2, ntyp = 1,
+    ecutwfc = 40.0,
+/
+&ELECTRONS
+    conv_thr = 1.0d-8
+/
+ATOMIC_SPECIES
+   Si  28.0855  Si.pbe-n-kjpaw_psl.1.0.0.UPF
+
+CELL_PARAMETERS (angstrom)
+  {strained_cell[0][0]:.8f}  {strained_cell[0][1]:.8f}  {strained_cell[0][2]:.8f}
+  {strained_cell[1][0]:.8f}  {strained_cell[1][1]:.8f}  {strained_cell[1][2]:.8f}
+  {strained_cell[2][0]:.8f}  {strained_cell[2][1]:.8f}  {strained_cell[2][2]:.8f}
+
+ATOMIC_POSITIONS (crystal)
+{ATOMIC_POSITIONS_STR.strip()}
+
+K_POINTS (automatic)
+  8 8 8 0 0 0
+"""
+    
+    # ইনপুট ফাইল রাইট করা
+    in_filename = f"scf_{delta}.in"
+    out_filename = f"scf_{delta}.out"
+    with open(in_filename, "w") as f:
+        f.write(input_data)
+        
+    # mpirun দিয়ে আপনার গ্লোবাল /usr/bin/pw.x রান করা
+    cmd = f"mpirun -np {NCPUS} pw.x < {in_filename} > {out_filename}"
+    subprocess.run(cmd, shell=True)
+    
+    # আউটপুট ফাইল থেকে এনার্জি এক্সট্রাক্ট করা (Rydberg ইউনিটে)
+    energy = None
+    with open(out_filename, "r") as f:
+        for line in f:
+            if "!" in line:
+                energy = float(line.split()[4]) # Ry ইউনিটে টোটাল এনার্জি
+                break
+    
+    if energy is not None:
+        energies.append(energy)
+        print(f"Energy: {energy} Ry")
+    else:
+        print(f"Error: Energy not found for strain {delta}!")
+        exit(1)
+
+# ৪. ডাটা ফিটিং এবং C11 ক্যালকুলেশন
+energies = np.array(energies)
+delta_E = energies - min(energies) # এনার্জির পরিবর্তন
+
+# ২য় ঘাতের পলিনমিয়াল ফিটিং (y = Ax^2 + Bx + C)
+coef = np.polyfit(strains, delta_E, 2)
+A = coef[0] # x^2 এর সহগ
+
+# ইউনিট কনভার্সন ফ্যাক্টর (Ry/Angstrom^3 থেকে GPa তে নেওয়ার জন্য)
+# 1 Ry = 160.21766 w.r.t volume conversion, exact factor = 14710.516
+ry_to_gpa = 14710.516
+C11 = (2 * A / V0) * ry_to_gpa
+
+print("\n================ RESULT ================")
+print(f"Calculated C11 Elastic Constant: {C11:.2f} GPa")
+print("========================================")
+
+# ৫. গ্রাফ প্লট করা
+plt.plot(strains, delta_E, 'Ro', label='DFT Data')
+fit_strains = np.linspace(min(strains), max(strains), 100)
+plt.plot(fit_strains, np.polyval(coef, fit_strains), 'b-', label='Quadratic Fit')
+plt.xlabel('Strain ($\delta$)')
+plt.ylabel('$\Delta$E (Ry)')
+plt.title(f'Uniaxial Strain vs Energy ($C_{{11}}$ = {C11:.2f} GPa)')
+plt.legend()
+plt.grid(True)
+plt.savefig('C11_fit_plot.png')
+plt.show()
