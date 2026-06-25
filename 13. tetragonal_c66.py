@@ -1,0 +1,138 @@
+import os
+import subprocess
+import numpy as np
+import matplotlib.pyplot as plt
+
+# =====================================================================
+# ১. আপনার নিজস্ব টেট্রাগোনাল সিস্টেম সেটআপ (এগুলো পরিবর্তন করুন)
+# =====================================================================
+PREFIX = "tetra_material"
+PSEUDO_DIR = "/path/to/your/pseudos/"  # সিউডোপোটেনশিয়াল ফোল্ডারের পাথ
+NCPUS = 4                              # প্রসেসর কোর সংখ্যা
+
+# vc-relax থেকে পাওয়া টেট্রাগোনাল ল্যাটিস ম্যাট্রিক্স (Angstrom ইউনিটে)
+CELL_BASE = np.array([
+    [4.0000, 0.0000, 0.0000],  # a
+    [0.0000, 4.0000, 0.0000],  # b
+    [0.0000, 0.0000, 6.5000]   # c
+])
+
+# রিল্যাক্সড অ্যাটমিক পজিশনস
+ATOMIC_POSITIONS_STR = """
+Ti  0.000000000  0.000000000  0.000000000
+O   0.500000000  0.500000000  0.000000000
+"""
+
+# =====================================================================
+# ২. স্ট্রেন রেঞ্জ এবং ইনিশিয়াল সেটআপ
+# =====================================================================
+strains = np.array([-0.02, -0.01, 0.00, 0.01, 0.02])
+energies = []
+
+# রিল্যাক্সড সেলের ভলিউম হিসাব (V0)
+V0 = np.dot(CELL_BASE[0], np.cross(CELL_BASE[1], CELL_BASE[2]))
+print(f"Relaxed Tetragonal Volume (V0): {V0:.4f} Angstrom^3")
+
+# =====================================================================
+# ৩. লুপ চালিয়ে XY Plane Shear Strain অ্যাপ্লাই ও QE রান করা
+# =====================================================================
+for delta in strains:
+    print(f"Running simulation for Tetragonal C66 strain delta = {delta}...")
+    
+    # XY প্লেন বরাবর Shear Strain Matrix
+    strain_matrix = np.array([
+        [1.0, delta, 0.0],
+        [0.0,  1.0,  0.0],
+        [0.0,  0.0,  1.0]
+    ])
+    
+    # নতুন স্ট্রেনড সেল তৈরি
+    strained_cell = np.dot(CELL_BASE, strain_matrix)
+    
+    # QE ইনপুট টেক্সট জেনারেট করা
+    input_data = f"""&CONTROL
+    calculation = 'scf'
+    prefix = '{PREFIX}'
+    outdir = './tmp/'
+    pseudo_dir = '{PSEUDO_DIR}'
+/
+&SYSTEM
+    ibrav = 0, nat = 2, ntyp = 2,
+    ecutwfc = 50.0,
+/
+&ELECTRONS
+    conv_thr = 1.0d-8
+/
+ATOMIC_SPECIES
+   Ti  47.867   Ti.pbe-spn-kjpaw_psl.1.0.0.UPF
+   O   15.999   O.pbe-n-kjpaw_psl.1.0.0.UPF
+
+CELL_PARAMETERS (angstrom)
+  {strained_cell[0][0]:.8f}  {strained_cell[0][1]:.8f}  {strained_cell[0][2]:.8f}
+  {strained_cell[1][0]:.8f}  {strained_cell[1][1]:.8f}  {strained_cell[1][2]:.8f}
+  {strained_cell[2][0]:.8f}  {strained_cell[2][1]:.8f}  {strained_cell[2][2]:.8f}
+
+ATOMIC_POSITIONS (crystal)
+{ATOMIC_POSITIONS_STR.strip()}
+
+K_POINTS (automatic)
+  6 6 4 0 0 0
+"""
+    
+    in_filename = f"scf_tetra_c66_{delta}.in"
+    out_filename = f"scf_tetra_c66_{delta}.out"
+    with open(in_filename, "w") as f:
+        f.write(input_data)
+        
+    # QE রান করা
+    cmd = f"mpirun -np {NCPUS} pw.x < {in_filename} > {out_filename}"
+    subprocess.run(cmd, shell=True)
+    
+    # টোটাল এনার্জি এক্সট্রাক্ট করা
+    energy = None
+    with open(out_filename, "r") as f:
+        for line in f:
+            if "!" in line:
+                energy = float(line.split()[4])
+                break
+    
+    if energy is not None:
+        energies.append(energy)
+        print(f"Energy: {energy} Ry")
+    else:
+        print(f"Error: Energy not found for strain {delta}!")
+        exit(1)
+
+# =====================================================================
+# ৪. ডাটা ফিٹنگ এবং C66 ক্যালকুলেশন সূত্র
+# =====================================================================
+energies = np.array(energies)
+delta_E = energies - min(energies)
+
+# ২য় ঘাতের পলিনমিয়াল ফিٹنگ (y = Ax^2 + Bx + C)
+coef = np.polyfit(strains, delta_E, 2)
+A = coef[0] 
+
+ry_to_gpa = 14710.516
+
+# XY Shear এর ক্ষেত্রে শক্তির সূত্র: Delta_E = 0.5 * V0 * C66 * delta^2
+# তাই, C66 = (2 * A / V0) * ry_to_gpa
+C66 = (2 * A / V0) * ry_to_gpa
+
+print("\n================ RESULT ================")
+print(f"Calculated Tetragonal C66 Elastic Constant: {C66:.2f} GPa")
+print("========================================")
+
+# =====================================================================
+# ৫. গ্রাফ প্লট এবং সেভ করা
+# =====================================================================
+plt.plot(strains, delta_E, 'go', label='DFT Data (XY Shear)')
+fit_strains = np.linspace(min(strains), max(strains), 100)
+plt.plot(fit_strains, np.polyval(coef, fit_strains), 'r-', label='Quadratic Fit')
+plt.xlabel('Shear Strain ($\delta$)')
+plt.ylabel('$\Delta$E (Ry)')
+plt.title(f'Tetragonal $C_{{66}}$ Fit ($C_{{66}}$ = {C66:.2f} GPa)')
+plt.legend()
+plt.grid(True)
+plt.savefig('Tetragonal_C66_fit_plot.png')
+plt.show()
