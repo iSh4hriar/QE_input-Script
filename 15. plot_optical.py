@@ -9,58 +9,61 @@ epsi_file = "epsi_your_prefix.dat"
 data_r = np.loadtxt(epsr_file, comments=['#', '@'])
 data_i = np.loadtxt(epsi_file, comments=['#', '@'])
 
-# এনার্জি (eV) প্রথম কলামে থাকে
+# প্রথম কলামে থাকে ফোটন এনার্জি (eV)
 energy = data_r[:, 0]
 
-# X-ডিরেকশনের ডেটা নেওয়া হলো (কিউবিক/আইসোট্রপিক সিস্টেমের জন্য)
-eps1 = data_r[:, 1]  # Real part (\varepsilon_1)
-eps2 = data_i[:, 1]  # Imaginary part (\varepsilon_2)
+# ৩. টেট্রাগোনাল ও কিউবিক উভয় সিস্টেমের জন্য ৩টি অক্ষের গড় (Average) নেওয়া হলো
+eps1 = (data_r[:, 1] + data_r[:, 2] + data_r[:, 3]) / 3.0  # \varepsilon_1 (Real)
+eps2 = (data_i[:, 1] + data_i[:, 2] + data_i[:, 3]) / 3.0  # \varepsilon_2 (Imaginary)
 
-# ৩. পেপারের Equation (27) অনুযায়ী Absorption Coefficient (\alpha) হিসাব করা
-# eV থেকে cm^-1 এ নেওয়ার জন্য কনভার্সন ফ্যাক্টর (2 / (\hbar * c)) \approx 101354
+# ৪. পেপারের সূত্র অনুযায়ী Absorption Coefficient (\alpha) হিসাব করা
 conversion_factor_alpha = 101354.35
 alpha = conversion_factor_alpha * energy * np.sqrt(0.5 * (np.sqrt(eps1**2 + eps2**2) - eps1))
 
-# ৪. পেপারের Equation (28) অনুযায়ী Optical Conductivity-র Real part (\sigma) হিসাব করা
-optical_cond = energy * eps2  # রিলেটিভ ট্রেন্ড বা ট্রেন্ডলাইন দেখার জন্য
+# ৫. Optical Conductivity (\sigma)-র ট্রেন্ড হিসাব করা
+optical_cond = energy * eps2 
 
-# ৫. গ্রাফ প্লট করা
-plt.figure(figsize=(12, 10))
+# ৬. ৪টি আলাদা গ্রাফ (2x2 Grid) প্লট করা
+fig, axs = plt.subplots(2, 2, figsize=(13, 11))
 
-# গ্রাফ ১: Dielectric Function (\varepsilon_1 এবং \varepsilon_2)
-plt.subplot(2, 2, 1)
-plt.plot(energy, eps1, label=r'$\varepsilon_1$ (Real)', color='blue')
-plt.plot(energy, eps2, label=r'$\varepsilon_2$ (Imaginary)', color='red')
-plt.xlabel('Energy (eV)')
-plt.ylabel('Dielectric Function')
-plt.title('Dielectric Function vs Energy')
-plt.legend()
-plt.grid(True)
+# গ্রাফ (a): Real Dielectric Function
+axs[0, 0].plot(energy, eps1, color='blue', linewidth=1.8)
+axs[0, 0].set_xlabel('Energy (eV)', fontsize=11)
+axs[0, 0].set_ylabel('Real Dielectric Function $\epsilon_1$', fontsize=11)
+axs[0, 0].set_title('(a) Real Dielectric Function', fontsize=12, fontweight='bold')
+axs[0, 0].grid(True, linestyle='--', alpha=0.6)
+axs[0, 0].set_xlim(0, 20)
 
-# গ্রাফ ২: Absorption Coefficient (\alpha)
-plt.subplot(2, 2, 2)
-plt.plot(energy, alpha / 1e5, color='green')  # 10^5 এককে দেখানোর জন্য
-plt.xlabel('Energy (eV)')
-plt.ylabel(r'Absorption Coefficient $\alpha$ ($\times 10^5$ cm$^{-1}$)')
-plt.title('Absorption Coefficient vs Energy')
-plt.grid(True)
+# গ্রাফ (b): Imaginary Dielectric Function
+axs[0, 1].plot(energy, eps2, color='red', linewidth=1.8)
+axs[0, 1].set_xlabel('Energy (eV)', fontsize=11)
+axs[0, 1].set_ylabel('Imaginary Dielectric Function $\epsilon_2$', fontsize=11)
+axs[0, 1].set_title('(b) Imaginary Dielectric Function', fontsize=12, fontweight='bold')
+axs[0, 1].grid(True, linestyle='--', alpha=0.6)
+axs[0, 1].set_xlim(0, 20)
 
-# গ্রাফ ৩: Optical Conductivity (\sigma)
-plt.subplot(2, 2, 3)
-plt.plot(energy, optical_cond, color='purple')
-plt.xlabel('Energy (eV)')
-plt.ylabel('Optical Conductivity (arb. units)')
-plt.title('Optical Conductivity vs Energy')
-plt.grid(True)
+# গ্রাফ (c): Absorption Coefficient
+axs[1, 0].plot(energy, alpha / 1e5, color='green', linewidth=1.8)
+axs[1, 0].set_xlabel('Energy (eV)', fontsize=11)
+axs[1, 0].set_ylabel('Absorption Coefficient $\\alpha$ ($\\times 10^5$ cm$^{-1}$)', fontsize=11)
+axs[1, 0].set_title('(c) Absorption Coefficient', fontsize=12, fontweight='bold')
+axs[1, 0].grid(True, linestyle='--', alpha=0.6)
+axs[1, 0].set_xlim(0, 20)
+
+# গ্রাফ (d): Optical Conductivity
+axs[1, 1].plot(energy, optical_cond, color='purple', linewidth=1.8)
+axs[1, 1].set_xlabel('Energy (eV)', fontsize=11)
+axs[1, 1].set_ylabel('Optical Conductivity (arb. units)', fontsize=11)
+axs[1, 1].set_title('(d) Optical Conductivity', fontsize=12, fontweight='bold')
+axs[1, 1].grid(True, linestyle='--', alpha=0.6)
+axs[1, 1].set_xlim(0, 20)
 
 plt.tight_layout()
-plt.savefig('optical_properties.png', dpi=300)
+plt.savefig('optical_properties_fixed.png', dpi=300)
 plt.show()
 
-# ৬. ডেটাগুলো নতুন ফাইলে সেভ করা (যাতে ওরিজিন প্রো-তে প্লট করতে পারেন)
+# ওরিজিনের জন্য ডেটা সেভ করা
 np.savetxt('calculated_optical_properties.dat', 
            np.column_stack((energy, eps1, eps2, alpha, optical_cond)),
-           header='Energy(eV)   Eps1   Eps2   Absorption(cm^-1)   Optical_Cond(arb.units)',
+           header='Energy(eV)   Eps1_Avg   Eps2_Avg   Absorption(cm^-1)   Optical_Cond(arb.units)',
            fmt='%.6f')
-
-print("সফলভাবে সবগুলো অপটিক্যাল প্রোপার্টি হিসাব করা হয়েছে এবং 'calculated_optical_properties.dat' ফাইলে সেভ করা হয়েছে!")
