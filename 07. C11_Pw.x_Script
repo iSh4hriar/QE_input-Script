@@ -8,7 +8,7 @@ PREFIX = "my_material"
 PSEUDO_DIR = "/path/to/your/pseudos/"  # আপনার সিউডোপোটেনশিয়াল ফোল্ডারের পাথ
 NCPUS = 4                              # আপনি যতগুলো কোরে রান করতে চান
 
-# vc-relax থেকে পাওয়া রিল্যাক্সড ল্যাটিস ম্যাট্রিক্স (Angstrom ইউনিটে)
+# vc-relax আউটপুট ফাইলের একদম শেষ অংশ থেকে CELL_PARAMETERS এর ৩টি লাইনের মান। (Angstrom ইউনিটে)
 CELL_BASE = np.array([
     [5.4307, 0.0000, 0.0000],
     [0.0000, 5.4307, 0.0000],
