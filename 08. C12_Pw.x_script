@@ -52,7 +52,7 @@ for delta in strains:
     # নতুন স্ট্রেনড সেল তৈরি
     strained_cell = np.dot(CELL_BASE, strain_matrix)
     
-    # QE ইনপুট টেক্সট জেনারেট করা
+    # QE ইনপুট টেক্সট জেনারেট করা (এখানে চেঞ্জ করতে হবে)
     input_data = f"""&CONTROL
     calculation = 'scf'
     prefix = '{PREFIX}'
