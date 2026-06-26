@@ -7,7 +7,7 @@
 # ecutwfc is assigned by variable ecut.
  cat > ecut.$ecut.in << EOF
                     Paste input file (scf_01.in) and write ${ecut} in the ecut section
- EOF
+EOF
  # Run SCF calculation.
  mpirun-np 4 pw.x <ecut.$ecut.in> ecut.$ecut.out
  # Write cut-off and total energies in calc-ecut.dat.
