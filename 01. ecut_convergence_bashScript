@@ -9,7 +9,7 @@
                     Paste input file (scf_01.in) and write ${ecut} in the ecut section
 EOF
  # Run SCF calculation.
- mpirun-np 4 pw.x <ecut.$ecut.in> ecut.$ecut.out
+mpirun -np 4 pw.x < ecut.$ecut.in > ecut.$ecut.out
  # Write cut-off and total energies in calc-ecut.dat.
  awk '/!/ {printf"%d %s\n",'$ecut',$5}' ecut.$ecut.
 out >> calc-ecut.dat
